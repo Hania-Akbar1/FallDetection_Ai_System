@@ -2,37 +2,25 @@ import os
 import sys
 import time
 import json
-import base64
 import tempfile
+import traceback
 from pathlib import Path
 import cv2
 import numpy as np
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# 1. Resolve Project Root & Add to Python Path
+# ---------------------------------------------------------
+# 1. RESOLVE PATHS & IMPORT INFERENCE PIPELINE
+# ---------------------------------------------------------
 FILE_PATH = Path(__file__).resolve()
+# Handles execution whether app.py is in DASHBOARD/ or root directory
 PROJECT_ROOT = FILE_PATH.parent.parent if FILE_PATH.parent.name == "DASHBOARD" else FILE_PATH.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# 2. Dynamic Import of Fall Detection Pipeline
-try:
-    from src.realtime_inference import process_frame
-except ImportError:
-    try:
-        from realtime_inference import process_frame
-    except ImportError as e:
-        def process_frame(frame):
-            # Fallback dummy if import fails
-            return frame, False, "MODEL NOT LOADED"
-
-OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-ALERT_HISTORY_PATH = OUTPUTS_DIR / "alert_history.json"
-OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Page Setup
+# Page Configuration
 st.set_page_config(
     page_title="FallDetection.AI System",
     page_icon="🚨",
@@ -42,7 +30,30 @@ st.set_page_config(
 st.title("🚨 FallDetection.AI System")
 st.caption("Real-Time Computer Vision & Machine Learning Fall Detection")
 
-# Helper to Load Alerts
+# Debug Import & Model Loading
+MODEL_LOADED = False
+try:
+    from src.realtime_inference import process_frame
+    MODEL_LOADED = True
+except Exception as e:
+    try:
+        from realtime_inference import process_frame
+        MODEL_LOADED = True
+    except Exception as e2:
+        st.error(f"⚠️ Model Load / Import Error: {e2}")
+        st.code(traceback.format_exc())
+        
+        def process_frame(frame):
+            # Fallback dummy function to keep UI responsive
+            return frame, False, "MODEL NOT LOADED"
+
+OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+ALERT_HISTORY_PATH = OUTPUTS_DIR / "alert_history.json"
+OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------
+# 2. HELPER FUNCTIONS FOR ALERT LOGGING
+# ---------------------------------------------------------
 def load_alerts():
     if not ALERT_HISTORY_PATH.exists():
         return []
@@ -53,7 +64,6 @@ def load_alerts():
     except Exception:
         return []
 
-# Helper to Save Alerts
 def log_alert(status_text):
     alerts = load_alerts()
     new_entry = {
@@ -67,7 +77,7 @@ def log_alert(status_text):
     except Exception:
         pass
 
-# Sidebar Controls
+# Sidebar Setup
 st.sidebar.header("System Controls")
 input_mode = st.sidebar.radio(
     "Select Input Mode",
@@ -78,13 +88,13 @@ alerts = load_alerts()
 st.sidebar.markdown("---")
 st.sidebar.metric(label="Total Alerts Logged", value=len(alerts))
 
-# STUN Server Config for WebRTC
+# Public STUN Server for WebRTC Connection
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
 # ---------------------------------------------------------
-# WEBRTC VIDEO PROCESSOR CLASS FOR LIVE CAMERA STREAMING
+# 3. WEBRTC LIVE VIDEO PROCESSOR
 # ---------------------------------------------------------
 class FallDetectionVideoProcessor(VideoProcessorBase):
     def __init__(self):
@@ -92,24 +102,24 @@ class FallDetectionVideoProcessor(VideoProcessorBase):
         self.status_text = "NORMAL"
 
     def recv(self, frame):
-        # Convert WebRTC frame to OpenCV BGR ndarray
         img = frame.to_ndarray(format="bgr24")
 
         try:
-            # Pass frame through MediaPipe + ML Model
+            # Process frame using MediaPipe + ML Model
             processed_img, is_fall, status = process_frame(img)
             self.fall_detected = is_fall
             self.status_text = status
         except Exception as e:
             processed_img = img
             cv2.putText(processed_img, f"Inference Error: {str(e)}", (30, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-        # Draw red border on frame if fall detected
+        # Overlay red alert border if fall is detected
         if self.fall_detected:
-            cv2.rectangle(processed_img, (0, 0), (processed_img.shape[1], processed_img.shape[2]), (0, 0, 255), 10)
-            cv2.putText(processed_img, "🚨 FALL DETECTED!", (50, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+            h, w, _ = processed_img.shape
+            cv2.rectangle(processed_img, (0, 0), (w, h), (0, 0, 255), 10)
+            cv2.putText(processed_img, "🚨 ALERT: FALL DETECTED!", (30, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
 
         return frame.from_ndarray(processed_img, format="bgr24")
 
@@ -128,7 +138,6 @@ if input_mode == "📷 Live Browser Camera":
         media_stream_constraints={"video": True, "audio": False},
     )
 
-    # Dynamic Live Alert Status Box below stream
     status_container = st.empty()
     audio_container = st.empty()
 
@@ -140,7 +149,7 @@ if input_mode == "📷 Live Browser Camera":
             if is_fall:
                 status_container.error(f"🚨 ALERT: FALL DETECTED! ({status_text})")
                 
-                # HTML5 Audio tag to play alarm sound in browser
+                # HTML5 Audio Alarm Trigger
                 audio_html = """
                 
                     
@@ -197,7 +206,7 @@ elif input_mode == "📹 Upload Video File":
                     # Run inference pipeline
                     processed_frame, fall_detected, status_text = process_frame(frame)
 
-                    # Convert BGR to RGB for rendering
+                    # Convert BGR to RGB for Streamlit rendering
                     frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
                     st_frame.image(frame_rgb, use_container_width=True)
 
