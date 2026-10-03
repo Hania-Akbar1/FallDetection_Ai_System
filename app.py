@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 import cv2
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
 # Setup Paths
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -21,11 +22,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# App Header
 st.title("🚨 FallDetection.AI System")
 st.caption("Real-Time Computer Vision & Machine Learning Fall Detection")
 
-# Helper to load persistent alerts
+# Load Alerts Helper
 def load_alerts():
     if not ALERT_HISTORY_PATH.exists():
         return []
@@ -38,15 +38,32 @@ def load_alerts():
 
 alerts = load_alerts()
 
-# Sidebar Navigation Controls
+# Sidebar Navigation
 st.sidebar.header("System Controls")
 input_mode = st.sidebar.radio(
     "Select Input Mode",
-    ["📹 Upload Video File", "📷 Live Camera Test", "📋 Alert Logs"]
+    ["📹 Upload Video File", "📷 Live Browser Camera", "📋 Alert Logs"]
 )
 
 st.sidebar.markdown("---")
 st.sidebar.metric(label="Total Alerts Logged", value=len(alerts))
+
+# STUN server configuration for cloud WebRTC connectivity
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
+
+# Custom Video Processor Class for WebRTC Frame Manipulation
+class FallDetectionVideoProcessor(VideoProcessorBase):
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        
+        # -----------------------------------------------------------
+        # NOTE: Pass `img` into your MediaPipe / ML model pipeline here
+        # Example: annotated_img = run_fall_detection_model(img)
+        # -----------------------------------------------------------
+        
+        return frame.from_ndarray(img, format="bgr24")
 
 # Option 1: Upload Video File
 if input_mode == "📹 Upload Video File":
@@ -68,7 +85,6 @@ if input_mode == "📹 Upload Video File":
             if not ret:
                 break
             
-            # Convert BGR (OpenCV) to RGB (Streamlit)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             st_frame.image(frame_rgb, use_container_width=True)
             time.sleep(0.02)
@@ -76,32 +92,17 @@ if input_mode == "📹 Upload Video File":
         cap.release()
         st.success("Video processing complete.")
 
-# Option 2: Live Camera Testing
-elif input_mode == "📷 Live Camera Test":
-    st.subheader("📷 Live Camera Testing")
-    st.write("Test fall detection using your device camera in real time.")
+# Option 2: Live Browser Camera Stream via WebRTC
+elif input_mode == "📷 Live Browser Camera":
+    st.subheader("📷 Live WebRTC Camera Stream")
+    st.write("Allow browser permissions to test real-time webcam detection directly on the cloud.")
     
-    run_live = st.checkbox("Activate Camera Stream")
-    camera_window = st.empty()
-
-    if run_live:
-        camera = cv2.VideoCapture(0)
-        
-        if not camera.isOpened():
-            st.error("Unable to access local webcam on cloud container.")
-            st.info("Note: Browser webcams on hosted cloud services require WebRTC (`streamlit-webrtc`) for browser-to-server streaming.")
-        else:
-            while run_live:
-                ret, frame = camera.read()
-                if not ret:
-                    st.warning("Failed to grab camera frame.")
-                    break
-                
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                camera_window.image(frame_rgb, use_container_width=True)
-                time.sleep(0.03)
-            
-            camera.release()
+    webrtc_streamer(
+        key="fall-detection-cam",
+        rtc_configuration=RTC_CONFIGURATION,
+        video_processor_factory=FallDetectionVideoProcessor,
+        media_stream_constraints={"video": True, "audio": False},
+    )
 
 # Option 3: Alert Logs
 elif input_mode == "📋 Alert Logs":
