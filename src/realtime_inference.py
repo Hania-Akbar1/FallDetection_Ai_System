@@ -1,7 +1,8 @@
+from datetime import datetime
 import cv2
 import numpy as np
 
-# Robust, multi-path MediaPipe import strategy
+# MediaPipe explicit import fallback
 try:
     from mediapipe.python.solutions import pose as mp_pose
     from mediapipe.python.solutions import drawing_utils as mp_drawing
@@ -20,22 +21,37 @@ pose = mp_pose.Pose(
     min_tracking_confidence=0.5
 )
 
-def reset_pipeline_state():
-    """Resets tracking buffers or counters if used."""
-    pass
+# Global thread-safe log storage & state tracking
+FALL_LOGS = []
+IS_CURRENTLY_FALLEN = False
 
-def process_frame(frame: np.ndarray):
+
+def reset_pipeline_state():
+    """Resets tracking buffers, log history, and fall state."""
+    global FALL_LOGS, IS_CURRENTLY_FALLEN
+    FALL_LOGS.clear()
+    IS_CURRENTLY_FALLEN = False
+
+
+def get_fall_history():
+    """Returns the list of recorded fall events."""
+    return FALL_LOGS
+
+
+def process_frame(frame: np.ndarray, source_mode: str = "Live Feed"):
     """
-    Processes a single BGR frame for fall detection.
+    Processes a single BGR frame for fall detection and updates event logs.
+    
     Returns:
-        processed_frame (np.ndarray): Frame with visual overlays
-        is_fall (bool): True if fall detected
+        processed_frame (np.ndarray): Frame with skeleton overlay and text banner
+        is_fall (bool): True if a fall is detected in current frame
         status_text (str): Readable status message
     """
+    global IS_CURRENTLY_FALLEN, FALL_LOGS
+
     if frame is None:
         return frame, False, "No Frame Received"
 
-    h, w, _ = frame.shape
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = pose.process(rgb_frame)
 
@@ -43,7 +59,7 @@ def process_frame(frame: np.ndarray):
     status_text = "NORMAL"
 
     if results.pose_landmarks:
-        # Draw skeleton overlay
+        # Draw pose keypoints
         mp_drawing.draw_landmarks(
             frame,
             results.pose_landmarks,
@@ -52,17 +68,30 @@ def process_frame(frame: np.ndarray):
 
         landmarks = results.pose_landmarks.landmark
 
-        # Extract Keypoints: Nose (0), Left Hip (23), Right Hip (24), Left Ankle (27), Right Ankle (28)
+        # Extract Keypoints: Nose (0), Left Hip (23), Right Hip (24)
         nose_y = landmarks[0].y
         left_hip_y = landmarks[23].y
         right_hip_y = landmarks[24].y
         hip_y = (left_hip_y + right_hip_y) / 2.0
 
-        # Heuristic / Geometry Fall Condition: Head level drops near or below hip level
+        # Heuristic Fall Condition
         if nose_y > hip_y or abs(nose_y - hip_y) < 0.12:
             is_fall = True
             status_text = "FALL DETECTED!"
+            
+            # Log new fall event (with state debouncing)
+            if not IS_CURRENTLY_FALLEN:
+                IS_CURRENTLY_FALLEN = True
+                log_entry = {
+                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Event": "FALL DETECTED",
+                    "Source": source_mode,
+                    "Confidence": "HIGH",
+                    "Status": "Alert Triggered"
+                }
+                FALL_LOGS.append(log_entry)
         else:
             status_text = "PERSON STANDING"
+            IS_CURRENTLY_FALLEN = False
 
     return frame, is_fall, status_text
