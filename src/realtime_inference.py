@@ -38,9 +38,13 @@ if MODEL_PATH.exists():
 else:
     print(f"Warning: Model file not found at {MODEL_PATH}")
 
-# Initialize MediaPipe Pose
-mp_pose = mp.solutions.pose
-mp_drawing = mp.solutions.drawing_utils
+# Initialize MediaPipe Pose safely across different MediaPipe versions
+try:
+    import mediapipe.python.solutions.pose as mp_pose
+    import mediapipe.python.solutions.drawing_utils as mp_drawing
+except Exception:
+    mp_pose = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
 
 pose = mp_pose.Pose(
     static_image_mode=False,
