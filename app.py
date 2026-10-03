@@ -369,7 +369,7 @@ def dashboard():
     return send_from_directory(DASHBOARD_DIR, "index.html")
 
 
-@app.route("/")
+@app.route("/<path:path>")
 def serve_dashboard_file(path):
     return send_from_directory(DASHBOARD_DIR, path)
 
