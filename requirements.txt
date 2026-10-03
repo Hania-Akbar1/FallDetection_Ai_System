@@ -1,9 +1,10 @@
 streamlit
 streamlit-webrtc
 opencv-python-headless
-mediapipe==0.10.9
+mediapipe
 scikit-learn
 pandas
 numpy
 joblib
 python-dotenv
+av
