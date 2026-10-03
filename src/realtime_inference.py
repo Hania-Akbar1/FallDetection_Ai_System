@@ -38,13 +38,20 @@ if MODEL_PATH.exists():
 else:
     print(f"Warning: Model file not found at {MODEL_PATH}")
 
-# Initialize MediaPipe Pose safely across different MediaPipe versions
+# ------------------------------------------------------------
+# MEDIAPIPE INITIALIZATION (SAFE CROSS-VERSION LOADING)
+# ------------------------------------------------------------
 try:
-    import mediapipe.python.solutions.pose as mp_pose
-    import mediapipe.python.solutions.drawing_utils as mp_drawing
+    # Direct solution module import (Most reliable on modern MediaPipe releases)
+    import mediapipe.solutions.pose as mp_pose
+    import mediapipe.solutions.drawing_utils as mp_drawing
 except Exception:
-    mp_pose = mp.solutions.pose
-    mp_drawing = mp.solutions.drawing_utils
+    try:
+        # Standard top-level access fallback
+        mp_pose = mp.solutions.pose
+        mp_drawing = mp.solutions.drawing_utils
+    except Exception as e:
+        raise ImportError(f"Could not load MediaPipe Pose solutions module: {e}")
 
 pose = mp_pose.Pose(
     static_image_mode=False,
