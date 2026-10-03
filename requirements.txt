@@ -1,4 +1,4 @@
-flask
+streamlit
 opencv-python-headless
 mediapipe
 scikit-learn
